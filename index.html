@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiMo Peak / Off-Peak Status</title>
+<meta name="description" content="Live check: is MiMo AI on peak time or off-peak night discount right now? Off-peak is Beijing 00:00–08:00 (UTC 16:00–24:00) at 0.8x consumption.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121a18'/%3E%3Cpath d='M16 5a11 11 0 1 0 11 11A9 9 0 0 1 16 5z' fill='%23e8b04b'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0b100f;
+    --surface: #121a18;
+    --surface-2: #17211f;
+    --line: #24302d;
+    --ink: #e9efec;
+    --muted: #8fa09b;
+    --faint: #5d6d68;
+    --accent: #e8b04b;          /* night discount / off-peak */
+    --accent-ink: #1a1204;
+    --calm: #9fc4bb;            /* peak: quiet, standard */
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --r: 14px;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.5;
+    letter-spacing: .005em;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 28px 20px 48px; }
+
+  header.site {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; margin-bottom: 18px;
+  }
+  .brand { font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .brand strong { color: var(--ink); font-weight: 600; }
+  .clock-mini { font-family: var(--mono); font-size: 13px; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+  /* ---- status band: left state, right countdown (grid, not centered stack) ---- */
+  .band {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 26px 26px 22px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    gap: 20px 28px;
+    align-items: center;
+  }
+  .state-word {
+    font-family: var(--mono);
+    font-size: clamp(34px, 7vw, 58px);
+    line-height: 1;
+    letter-spacing: -.01em;
+    margin: 0 0 10px;
+    font-weight: 700;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .dot {
+    width: .55em; height: .55em; border-radius: 50%;
+    background: var(--calm); flex: none;
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--calm) 14%, transparent);
+  }
+  [data-state="offpeak"] .dot {
+    background: var(--accent);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  [data-state="offpeak"] .state-word { color: var(--accent); }
+  [data-state="peak"] .state-word { color: var(--ink); }
+  .state-sub { color: var(--muted); font-size: 15px; margin: 0; max-width: 42ch; }
+  .coef {
+    display: inline-flex; align-items: baseline; gap: 8px;
+    margin-top: 14px; padding: 7px 13px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--surface-2);
+    font-family: var(--mono); font-size: 14px; color: var(--ink);
+  }
+  .coef b { font-size: 19px; font-weight: 700; }
+  [data-state="offpeak"] .coef b { color: var(--accent); }
+  .coef span { color: var(--faint); letter-spacing: .06em; text-transform: uppercase; font-family: var(--sans); font-size: 11px; }
+
+  .count-block { border-left: 1px solid var(--line); padding-left: 28px; }
+  .count-label { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); margin: 0 0 6px; }
+  .count {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: clamp(30px, 5.5vw, 44px); line-height: 1.05; font-weight: 600;
+    letter-spacing: .01em; margin: 0;
+  }
+  .count-note { margin: 8px 0 0; font-size: 13px; color: var(--muted); font-family: var(--mono); }
+
+  /* ---- 24h timeline (Beijing) ---- */
+  .timeline { margin-top: 26px; }
+  .tl-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; margin-bottom: 10px;
+  }
+  .tl-head h2 { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); margin: 0; font-weight: 600; }
+  .tl-head .now-tag { font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .track {
+    position: relative; height: 56px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    overflow: hidden;
+  }
+  .off-window {
+    position: absolute; inset: 0 auto 0 0; width: calc(8 / 24 * 100%);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    border-right: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .hour-ticks { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(24, 1fr); }
+  .hour-ticks i { border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .hour-ticks i:nth-child(1) { border-left: 0; }
+  .now-line {
+    position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink);
+    transform: translateX(-1px);
+  }
+  .now-line::after {
+    content: ""; position: absolute; top: 0; left: 50%; transform: translate(-50%, -50%);
+    width: 9px; height: 9px; border-radius: 50%; background: var(--ink);
+  }
+  .tl-labels {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 11px; color: var(--faint);
+    margin-top: 7px; font-variant-numeric: tabular-nums;
+  }
+  .tl-labels .win { color: var(--accent); }
+
+  /* ---- three aligned time columns (not cards) ---- */
+  .times {
+    margin-top: 26px; display: grid; gap: 1px;
+    grid-template-columns: repeat(3, 1fr);
+    background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;
+  }
+  .time-cell { background: var(--surface); padding: 18px 20px; }
+  .time-cell .k { font-size: 11px; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); margin: 0 0 5px; }
+  .time-cell .v {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: clamp(19px, 3.4vw, 25px); margin: 0; letter-spacing: .01em;
+    white-space: nowrap;
+  }
+  .time-cell .z { font-family: var(--mono); font-size: 11px; color: var(--faint); margin: 3px 0 0; }
+
+  /* ---- rule footer ---- */
+  .rule {
+    margin-top: 26px; border-top: 1px solid var(--line); padding-top: 18px;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 24px;
+  }
+  .rule .item .k { font-size: 11px; letter-spacing: .13em; text-transform: uppercase; color: var(--faint); margin: 0 0 4px; }
+  .rule .item .v { margin: 0; font-size: 14px; color: var(--muted); }
+  .rule .item .v b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
+
+  @media (max-width: 640px) {
+    .band { grid-template-columns: 1fr; padding: 22px 18px; }
+    .count-block { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; padding-top: 18px; }
+    .times, .rule { grid-template-columns: 1fr; }
+    .time-cell { padding: 14px 18px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .dot { transition: background .4s ease, box-shadow .4s ease; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app" data-state="peak">
+
+  <header class="site">
+    <div class="brand"><strong>MiMo</strong> · peak status</div>
+    <div class="clock-mini" id="headerClock">—</div>
+  </header>
+
+  <section class="band" aria-live="polite">
+    <div>
+      <p class="state-word"><span class="dot" aria-hidden="true"></span><span id="stateWord">—</span></p>
+      <p class="state-sub" id="stateSub">Checking current window…</p>
+      <div class="coef">
+        <span>consumption</span><b id="coefVal">—</b><span id="coefLabel">—</span>
+      </div>
+    </div>
+    <div class="count-block">
+      <p class="count-label" id="countLabel">Next change in</p>
+      <p class="count" id="countdown">--:--:--</p>
+      <p class="count-note" id="countNote">—</p>
+    </div>
+  </section>
+
+  <section class="timeline" aria-label="24 hour Beijing time window">
+    <div class="tl-head">
+      <h2>Beijing time · 24h</h2>
+      <div class="now-tag">now <span id="nowBJ">—</span></div>
+    </div>
+    <div class="track">
+      <div class="off-window" title="Night discount window 00:00–08:00"></div>
+      <div class="hour-ticks" aria-hidden="true"></div>
+      <div class="now-line" id="nowLine" style="left:0"></div>
+    </div>
+    <div class="tl-labels">
+      <span class="win">00:00 discount</span>
+      <span>08:00</span>
+      <span>16:00</span>
+      <span>24:00</span>
+    </div>
+  </section>
+
+  <section class="times" aria-label="Current times">
+    <div class="time-cell">
+      <p class="k">Your local time</p>
+      <p class="v" id="tLocal">—</p>
+      <p class="z" id="zLocal">—</p>
+    </div>
+    <div class="time-cell">
+      <p class="k">Beijing (UTC+8)</p>
+      <p class="v" id="tBJ">—</p>
+      <p class="z">Asia/Shanghai</p>
+    </div>
+    <div class="time-cell">
+      <p class="k">UTC</p>
+      <p class="v" id="tUTC">—</p>
+      <p class="z">off-peak is 16:00–24:00 UTC</p>
+    </div>
+  </section>
+
+  <section class="rule" aria-label="Pricing rule">
+    <div class="item">
+      <p class="k">Off-peak window</p>
+      <p class="v">Beijing <b>00:00–08:00</b></p>
+    </div>
+    <div class="item">
+      <p class="k">Same moment in UTC</p>
+      <p class="v"><b>16:00–24:00</b></p>
+    </div>
+    <div class="item">
+      <p class="k">Night discount rate</p>
+      <p class="v"><b>0.8×</b> consumption coefficient</p>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var DAY_MS = 86400000;
+  document.querySelector(".hour-ticks").innerHTML = new Array(24).fill("<i></i>").join("");
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+  // All decisions derive from the UTC instant, so the browser's timezone can't skew the result.
+  function utcMinutesOfDay(d) {
+    return d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60;
+  }
+
+  // Off-peak: Beijing 00:00–08:00 == UTC 16:00–24:00.
+  function isOffPeak(d) {
+    return utcMinutesOfDay(d) >= 16 * 60;
+  }
+
+  function nextBoundaryUTC(now) {
+    var cands = [0, 16].map(function (h) {
+      var c = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, 0, 0, 0);
+      return c > now.getTime() ? c : c + DAY_MS;
+    });
+    return new Date(Math.min.apply(null, cands));
+  }
+
+  function beijingParts(d) {
+    var b = new Date(d.getTime() + 8 * 3600000); // shift, then read UTC fields
+    return {
+      h: b.getUTCHours(), m: b.getUTCMinutes(), s: b.getUTCSeconds(),
+      min: b.getUTCHours() * 60 + b.getUTCMinutes() + b.getUTCSeconds() / 60
+    };
+  }
+
+  var zoneName = "your time zone";
+  try {
+    zoneName = Intl.DateTimeFormat().resolvedOptions().timeZone || zoneName;
+  } catch (e) { /* keep fallback */ }
+
+  function render() {
+    var now = new Date();
+    var off = isOffPeak(now);
+    var bj = beijingParts(now);
+    var boundary = nextBoundaryUTC(now);
+    var msLeft = boundary.getTime() - now.getTime();
+    var toOffPeak = !off; // peak now → the next boundary opens the discount window
+
+    document.getElementById("app").setAttribute("data-state", off ? "offpeak" : "peak");
+    document.getElementById("stateWord").textContent = off ? "OFF-PEAK" : "PEAK";
+    document.getElementById("stateSub").textContent = off
+      ? "Night discount window is active — Beijing 00:00–08:00."
+      : "Standard consumption applies — the night discount runs Beijing 00:00–08:00.";
+    document.getElementById("coefVal").textContent = off ? "0.8×" : "1.0×";
+    document.getElementById("coefLabel").textContent = off ? "night discount" : "standard rate";
+
+    document.getElementById("countLabel").textContent = toOffPeak ? "Discount starts in" : "Discount ends in";
+    var totalS = Math.max(0, Math.floor(msLeft / 1000));
+    var hh = Math.floor(totalS / 3600), mm = Math.floor(totalS % 3600 / 60), ss = totalS % 60;
+    document.getElementById("countdown").textContent = pad(hh) + ":" + pad(mm) + ":" + pad(ss);
+
+    document.getElementById("countNote").textContent =
+      (toOffPeak ? "at Beijing 00:00" : "at Beijing 08:00") +
+      " · UTC " + pad(boundary.getUTCHours()) + ":00";
+
+    document.getElementById("nowLine").style.left = (bj.min / 1440 * 100) + "%";
+    document.getElementById("nowBJ").textContent = pad(bj.h) + ":" + pad(bj.m) + ":" + pad(bj.s);
+
+    var utcH = now.getUTCHours(), utcM = now.getUTCMinutes(), utcS = now.getUTCSeconds();
+    document.getElementById("tUTC").textContent = pad(utcH) + ":" + pad(utcM) + ":" + pad(utcS);
+    document.getElementById("tBJ").textContent = pad(bj.h) + ":" + pad(bj.m) + ":" + pad(bj.s);
+    document.getElementById("tLocal").textContent =
+      pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds());
+    document.getElementById("zLocal").textContent = zoneName;
+    document.getElementById("headerClock").textContent =
+      "UTC " + pad(utcH) + ":" + pad(utcM) + " · Beijing " + pad(bj.h) + ":" + pad(bj.m);
+  }
+
+  render();
+  setInterval(render, 1000);
+})();
+</script>
+</body>
+</html>
